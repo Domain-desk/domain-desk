@@ -142,7 +142,6 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     if (viewerNumber && observer) observer.observe(viewerNumber, { childList: true, characterData: true, subtree: true });
     onViewerChange();
     const day = 86400000;
-    const formatPrice = (value: number) => `$${Math.round(value).toLocaleString("en-US")}`;
     const twoDigits = (value: number) => `${value < 10 ? "0" : ""}${value}`;
     const tick = () => {
       const now = Date.now();
@@ -158,35 +157,54 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       const configuredPrice = Number(root.dataset.price);
       const hasAmount = root.dataset.price !== "" && Number.isFinite(configuredPrice) && configuredPrice >= 0;
       const risePercent = Number(root.dataset.rise);
-      const riseRate = Number.isFinite(risePercent) ? risePercent / 100 : 0.07;
+      const riseRate = Number.isFinite(risePercent) ? risePercent / 100 : 0;
       const percentage = hasAmount && root.dataset.priceType === "percentage";
-      const basePrice = hasAmount ? configuredPrice : 1_000_000;
-      const price = basePrice * Math.pow(1 + riseRate, rises);
+      const price = hasAmount ? configuredPrice * Math.pow(1 + riseRate, rises) : null;
       const formatDomainPrice = (amount: number) => percentage
         ? `${Number(amount.toFixed(2))}%`
-        : hasAmount
-          ? new Intl.NumberFormat("en", { style: "currency", currency: root.dataset.currency || "EUR", maximumFractionDigits: 0 }).format(amount)
-          : formatPrice(amount);
+        : new Intl.NumberFormat("en", { style: "currency", currency: root.dataset.currency || "EUR", maximumFractionDigits: 0 }).format(amount);
       const timer = root.querySelector<HTMLElement>("#timer3");
       const current = root.querySelector<HTMLElement>("#livePrice");
       const previous = root.querySelector<HTMLElement>("#prevP");
       const nextPrice = root.querySelector<HTMLElement>("#nextPrice");
       const riseNote = root.querySelector<HTMLElement>("#riseNote");
-      const rising = riseRate > 0;
+      const priceLine = root.querySelector<HTMLElement>(".price");
+      const nowLabel = root.querySelector<HTMLElement>(".nowlbl");
+      const rising = hasAmount && riseRate > 0;
       if (nextPrice) nextPrice.style.visibility = rising ? "visible" : "hidden";
-      if (riseNote) riseNote.textContent = rising ? `Price rises ${Number((riseRate * 100).toFixed(2))}% in` : "Price held";
-      if (timer) {
-        timer.style.visibility = rising ? "visible" : "hidden";
-        timer.textContent = `${twoDigits(Math.floor(remaining / 3600))}h ${twoDigits(Math.floor(remaining % 3600 / 60))}m ${twoDigits(remaining % 60)}s`;
+      if (nowLabel) nowLabel.hidden = !rising;
+      if (priceLine) priceLine.classList.toggle("is-request", !hasAmount);
+      if (riseNote) {
+        riseNote.textContent = rising ? `Price rises ${Number((riseRate * 100).toFixed(2))}% in` : "Price held";
+        if (riseNote.parentElement) riseNote.parentElement.hidden = !rising;
       }
-      if (current) current.textContent = formatDomainPrice(price);
-      if (previous) previous.textContent = formatDomainPrice(price * (1 + riseRate));
+      if (timer && rising) timer.textContent = `${twoDigits(Math.floor(remaining / 3600))}h ${twoDigits(Math.floor(remaining % 3600 / 60))}m ${twoDigits(remaining % 60)}s`;
+      if (current) current.textContent = price === null ? "Price on request" : formatDomainPrice(price);
+      if (previous && price !== null) previous.textContent = formatDomainPrice(price * (1 + riseRate));
     };
+    const alignToPrice = () => {
+      const priceLabel = root.querySelector("#livePrice");
+      const bundle = root.querySelector<HTMLElement>(".bundle:not(.empty)");
+      const anchor = bundle && bundle.textContent?.trim() ? bundle : domainHeading;
+      const column = root.querySelector<HTMLElement>(".col");
+      if (!priceLabel || !anchor || !column) return;
+      if (window.innerWidth < 721) {
+        column.style.transform = "";
+        return;
+      }
+      column.style.transform = "";
+      const delta = priceLabel.getBoundingClientRect().bottom - anchor.getBoundingClientRect().bottom;
+      if (Math.abs(delta) < 0.5) return;
+      const transform = getComputedStyle(column).transform;
+      const baseY = transform && transform !== "none" ? new DOMMatrix(transform).m42 : 0;
+      column.style.transform = `translateY(${baseY + delta}px)`;
+    };
+    const layout = () => { fit(); alignToPrice(); };
     const priceTimer = root.querySelector("#timer3") ? window.setInterval(tick, 1000) : undefined;
     if (root.querySelector("#timer3")) tick();
-    window.addEventListener("resize", fit);
-    document.fonts?.ready.then(fit);
-    fit();
+    window.addEventListener("resize", layout);
+    document.fonts?.ready.then(layout);
+    layout();
     return () => {
       toggle?.removeEventListener("click", toggleTheme);
       portfolioFrame?.removeEventListener("load", onPortfolioFrameLoad);
@@ -196,9 +214,10 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       contactToggle?.removeEventListener("click", onContactToggle);
       observer?.disconnect();
       if (priceTimer) window.clearInterval(priceTimer);
-      window.removeEventListener("resize", fit);
+      window.removeEventListener("resize", layout);
     };
   }, [markup, theme]);
 
-  return <div ref={container} className="approved-template" data-theme={theme} data-price-type={domain.priceType} data-price={domain.price ?? ""} data-rise={domain.priceRisePercent ?? 7} data-rise-start={domain.priceRiseStartedAt || ""} data-rise-legacy={domain.hostname === "imet.si" && domain.priceRiseStartedAt === imetRiseStartedAt ? "true" : "false"} data-viewers={domain.viewerCount ?? 0} data-currency={domain.currency} dangerouslySetInnerHTML={{ __html: markup }} />;
+  const hasBundle = domain.includedMode === "domains" ? domain.includedDomains.length > 0 : domain.includedMode === "text" ? domain.includedText.trim().length > 0 : false;
+  return <div ref={container} className="approved-template" data-theme={theme} data-bundle={hasBundle ? "yes" : "no"} data-price-type={domain.priceType} data-price={domain.price ?? ""} data-rise={domain.price === null ? 0 : domain.priceRisePercent ?? 0} data-rise-start={domain.priceRiseStartedAt || ""} data-rise-legacy={domain.hostname === "imet.si" && domain.price !== null && domain.priceRiseStartedAt === imetRiseStartedAt ? "true" : "false"} data-viewers={domain.viewerCount ?? 0} data-currency={domain.currency} dangerouslySetInnerHTML={{ __html: markup }} />;
 }

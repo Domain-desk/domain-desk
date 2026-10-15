@@ -75,7 +75,7 @@ export const starterDomains: DomainRecord[] = inventory.map(([hostname, category
   priceType: "request",
   priceRisePercent: 7,
   priceRiseStartedAt: "",
-  viewerCount: hostname === "imet.si" ? 3 : 0,
+  viewerCount: 0,
   currency: "EUR",
   includedMode: bundlePairs[hostname] ? "domains" : "none",
   includedDomains: bundlePairs[hostname] ?? [],
@@ -103,18 +103,18 @@ function hostnameHash(hostname: string) {
 }
 
 export function freshDomainClock(hostname: string, now = Date.now()) {
-  if (hostname === "imet.si") return { priceRiseStartedAt: imetRiseStartedAt, viewerCount: 3 };
+  if (hostname === "imet.si") return { priceRiseStartedAt: imetRiseStartedAt, viewerCount: 0 };
   const hash = hostnameHash(hostname);
   return {
     priceRiseStartedAt: new Date(now - (hash % (20 * 60 * 60)) * 1000).toISOString(),
-    viewerCount: 1 + (hash % 4),
+    viewerCount: 0,
   };
 }
 
 export function normalizeViewerCount(value: unknown, hostname: string) {
   const number = typeof value === "number" ? value : Number(value);
   if (Number.isFinite(number) && number >= 0) return Math.min(Math.round(number), 9999);
-  return hostname === "imet.si" ? 3 : 0;
+  return 0;
 }
 
 export function hasRiseStart(value: unknown): value is string {
@@ -133,15 +133,16 @@ export function riseSteps(domain: Pick<DomainRecord, "hostname" | "priceRiseStar
 }
 
 export function currentAskingAmount(domain: Pick<DomainRecord, "hostname" | "price" | "priceRisePercent" | "priceRiseStartedAt">, now = Date.now()) {
-  const base = domain.price ?? 1_000_000;
+  if (domain.price === null) return null;
   const rate = normalizePriceRisePercent(domain.priceRisePercent) / 100;
-  return base * Math.pow(1 + rate, riseSteps(domain, now));
+  return domain.price * Math.pow(1 + rate, riseSteps(domain, now));
 }
 
 export function askingPriceLabel(domain: DomainRecord, now = Date.now()) {
   if (domain.priceType === "percentage" && domain.price !== null) return `${domain.price}%`;
-  if (domain.price === null) return "Price on request";
-  return new Intl.NumberFormat("en", { style: "currency", currency: domain.currency || "EUR", maximumFractionDigits: 0 }).format(currentAskingAmount(domain, now));
+  const amount = currentAskingAmount(domain, now);
+  if (amount === null) return "Price on request";
+  return new Intl.NumberFormat("en", { style: "currency", currency: domain.currency || "EUR", maximumFractionDigits: 0 }).format(amount);
 }
 
 export function normalizePriceRisePercent(value: unknown) {
