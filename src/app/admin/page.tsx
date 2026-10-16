@@ -3,8 +3,24 @@ import { ArrowLeft, ArrowUpRight, KeyRound, ShieldCheck } from "lucide-react";
 import { hasRiseStart, imetRiseStartedAt, normalizePriceRisePercent, normalizeViewerCount, starterDomains, type DomainPageRecord, type DomainRecord } from "@/lib/domains";
 import { readPortfolio } from "@/lib/portfolio-store";
 import { defaultSiteSettings, siteSettingsFromRow, type SiteSettings } from "@/lib/site-settings";
+import { liveHostnames } from "@/lib/site-reachability";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/server";
-import { AdminConsole } from "./admin-console";
+
+function emptyThemeResults(): ThemeResults {
+  return { lightViews: 0, darkViews: 0, lightInquiries: 0, darkInquiries: 0 };
+}
+
+function themeResultsFromRows(rows: Array<{ theme: string; event: string }> | null): ThemeResults {
+  const results = emptyThemeResults();
+  for (const row of rows ?? []) {
+    if (row.theme === "light" && row.event === "view") results.lightViews += 1;
+    if (row.theme === "dark" && row.event === "view") results.darkViews += 1;
+    if (row.theme === "light" && row.event === "inquiry") results.lightInquiries += 1;
+    if (row.theme === "dark" && row.event === "inquiry") results.darkInquiries += 1;
+  }
+  return results;
+}
+import { AdminConsole, type ThemeResults } from "./admin-console";
 import { signIn } from "./actions";
 import { Button } from "@/components/ui/button";
 
@@ -16,7 +32,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const params = await searchParams;
   if (!hasSupabaseConfig) {
     const portfolio = await readPortfolio();
-    return <AdminConsole initialDomains={portfolio.domains} initialPages={portfolio.pages} initialSettings={portfolio.settings} demoMode={false} backend="server" email="Administrator"/>;
+    const liveHosts = await liveHostnames(portfolio.domains.map((domain) => domain.hostname));
+    return <AdminConsole initialDomains={portfolio.domains} initialPages={portfolio.pages} initialSettings={portfolio.settings} demoMode={false} backend="server" email="Administrator" liveHosts={liveHosts} themeResults={emptyThemeResults()}/>;
   }
   if (params.demo === "1") return <AdminConsole initialDomains={starterDomains} initialPages={[]} initialSettings={defaultSiteSettings} demoMode backend="server"/>;
 
@@ -25,11 +42,12 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   if (!user) return <LoginScreen configured error={params.error}/>;
   const { data: isAdmin } = await supabase.from("domain_admins").select("user_id").eq("user_id", user.id).maybeSingle();
   if (!isAdmin) return <LoginScreen configured error="not-admin"/>;
-  const [{ data: rows }, { data: operations }, { data: pageRows }, { data: settingsRow }] = await Promise.all([
+  const [{ data: rows }, { data: operations }, { data: pageRows }, { data: settingsRow }, { data: themeRows }] = await Promise.all([
     supabase.from("domains").select("*").order("hostname"),
     supabase.from("domain_operations").select("*").order("hostname"),
     supabase.from("domain_pages").select("*").order("hostname").order("slug"),
     supabase.from("site_settings").select("*").eq("id", "global").maybeSingle(),
+    supabase.from("theme_events").select("theme,event").limit(5000),
   ]);
   const opByHostname = new Map((operations ?? []).map((operation) => [operation.hostname, operation]));
   const databaseDomains: DomainRecord[] = (rows ?? []).map((row) => {
@@ -47,7 +65,8 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   });
   const pages: DomainPageRecord[] = (pageRows ?? []).map((row) => ({ id: row.id, hostname: row.hostname, slug: row.slug, title: row.title, content: row.content, published: row.published }));
   const settings: SiteSettings = settingsRow ? siteSettingsFromRow(settingsRow) : defaultSiteSettings;
-  return <AdminConsole initialDomains={databaseDomains} initialPages={pages} initialSettings={settings} demoMode={false} email={user.email}/>;
+  const liveHosts = await liveHostnames(databaseDomains.map((domain) => domain.hostname));
+  return <AdminConsole initialDomains={databaseDomains} initialPages={pages} initialSettings={settings} demoMode={false} email={user.email} liveHosts={liveHosts} themeResults={themeResultsFromRows(themeRows)}/>;
 }
 
 function LoginScreen({ configured, error }: { configured: boolean; error?: string }) {

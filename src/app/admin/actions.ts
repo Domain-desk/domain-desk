@@ -12,9 +12,9 @@ import { requireAdmin } from "@/lib/supabase/admin";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/server";
 
 const domainSchema = z.object({
-  hostname: z.string().min(3).transform(normalizeHostname).refine((v) => /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(v), "Enter a valid domain name."),
-  title: z.string().trim().min(1).max(120),
-  category: z.string().trim().min(1).max(80),
+  hostname: z.string().trim().min(3, "Enter a domain such as a.com.").transform(normalizeHostname).refine((v) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(v), "Enter a valid domain name, such as a.com or ad.bot."),
+  title: z.string().trim().min(1, "Enter a page title.").max(120),
+  category: z.string().trim().min(1, "Enter a category.").max(80),
   description: z.string().max(2000),
   status: z.enum(["active", "draft", "sold"]),
   priceType: z.enum(["fixed", "percentage", "request"]),
@@ -73,8 +73,17 @@ export async function signOut() {
 }
 
 export async function saveDomain(form: FormData) {
-  const parsed = domainSchema.safeParse(formObject(form));
-  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the domain details." };
+  const raw = formObject(form);
+  const hostname = String(raw.hostname ?? "").trim();
+  if (!String(raw.title ?? "").trim()) raw.title = hostname;
+  if (!String(raw.category ?? "").trim()) raw.category = "Brandable";
+  if (!String(raw.currency ?? "").trim()) raw.currency = "EUR";
+  const parsed = domainSchema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const field = issue?.path[0] ? `${String(issue.path[0]).replace(/([A-Z])/g, " $1").toLowerCase()}: ` : "";
+    return { error: `${field}${issue?.message ?? "Check the domain details."}` };
+  }
   const value = parsed.data;
   const id = String(form.get("id") ?? "");
   const price = value.price?.trim() ? Number(value.price) : null;

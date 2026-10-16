@@ -8,8 +8,11 @@ export function DomainThemeToggle() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const useDark = localStorage.getItem("domain-site-theme") === "dark";
-      document.documentElement.dataset.theme = useDark ? "dark" : "light";
+      const saved = localStorage.getItem("imet-theme");
+      const chosen = saved === "dark" || saved === "light" ? saved : null;
+      const useDark = chosen ? chosen === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+      if (chosen) document.documentElement.dataset.theme = chosen;
+      else delete document.documentElement.dataset.theme;
       setDark(useDark);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -18,7 +21,7 @@ export function DomainThemeToggle() {
   function toggle() {
     const next = !dark;
     document.documentElement.dataset.theme = next ? "dark" : "light";
-    localStorage.setItem("domain-site-theme", next ? "dark" : "light");
+    localStorage.setItem("imet-theme", next ? "dark" : "light");
     setDark(next);
   }
 

@@ -12,7 +12,7 @@ function escapeHtml(value: string) {
 
 export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSettings }: { initialDomain: DomainRecord; settings?: SiteSettings }) {
   const [domain, setDomain] = useState(initialDomain);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark" | null>(null);
   const container = useRef<HTMLDivElement>(null);
   const markup = useMemo(() => {
     const [name, ...suffixParts] = domain.hostname.split(".");
@@ -43,20 +43,23 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
   useEffect(() => {
     let saved: string | null = null;
     try { saved = localStorage.getItem("imet-theme"); } catch { /* Storage can be disabled by the browser. */ }
-    const frame = window.requestAnimationFrame(() => setTheme(saved === "dark" ? "dark" : "light"));
+    const frame = window.requestAnimationFrame(() => setTheme(saved === "dark" || saved === "light" ? saved : null));
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
     const root = container.current;
     if (!root) return;
-    root.dataset.theme = theme;
+    if (theme) root.dataset.theme = theme;
+    else root.removeAttribute("data-theme");
+    const systemTheme = () => window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    const activeTheme = (): "light" | "dark" => root.dataset.theme === "dark" || root.dataset.theme === "light" ? root.dataset.theme : systemTheme();
     const toggle = root.querySelector<HTMLButtonElement>("#themeToggle");
     const content = root.querySelector<HTMLElement>(".content");
     const domainHeading = content?.querySelector<HTMLElement>(".dom");
     const portfolioFrame = root.querySelector<HTMLIFrameElement>(".portfolio-frame");
     const portfolioModal = root.querySelector<HTMLDialogElement>("#portfolioModal");
-    const syncPortfolioTheme = (activeTheme: "light" | "dark" = root.dataset.theme === "dark" ? "dark" : "light") => portfolioFrame?.contentWindow?.postMessage({ type: "imet-theme", theme: activeTheme }, "*");
+    const syncPortfolioTheme = (shown: "light" | "dark" = activeTheme()) => portfolioFrame?.contentWindow?.postMessage({ type: "imet-theme", theme: shown }, "*");
     const syncThemeControl = (activeTheme: "light" | "dark") => {
       toggle?.setAttribute("aria-pressed", String(activeTheme === "dark"));
       toggle?.setAttribute("aria-label", `Switch to ${activeTheme === "dark" ? "light" : "dark"} theme`);
@@ -67,9 +70,19 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
         ? '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l-1.42 1.42m11.3-11.3 1.42-1.42"/>'
         : '<path d="M20.2 15.4A8.5 8.5 0 0 1 8.6 3.8 8.5 8.5 0 1 0 20.2 15.4Z"/>';
     };
-    syncThemeControl(theme);
+    syncThemeControl(activeTheme());
+    const recordTheme = (eventName: "view" | "inquiry") => {
+      const shown = activeTheme();
+      const key = `domain-desk-theme-${eventName}-${domain.hostname}-${shown}`;
+      try {
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, "1");
+      } catch { /* Storage can be disabled by the browser. */ }
+      void fetch("/api/theme-event", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hostname: domain.hostname, theme: shown, event: eventName }) }).catch(() => undefined);
+    };
+    recordTheme("view");
     const toggleTheme = () => {
-      const next = root.dataset.theme === "dark" ? "light" : "dark";
+      const next = activeTheme() === "dark" ? "light" : "dark";
       root.dataset.theme = next;
       setTheme(next);
       syncThemeControl(next);
@@ -79,6 +92,9 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     const fit = () => {
       if (!content) return;
       const parts = content.querySelectorAll<HTMLElement>(".col,.card,.details");
+      content.style.removeProperty("--s");
+      const startingScale = Number.parseFloat(getComputedStyle(content).getPropertyValue("--s"));
+      const maxScale = Number.isFinite(startingScale) && startingScale > 0 ? Math.min(startingScale, 1) : 1;
       const fits = (scale: number) => {
         content.style.setProperty("--s", String(scale));
         if (domainHeading) {
@@ -92,9 +108,9 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
         }
         return content.scrollHeight <= content.clientHeight + 1 && Array.from(parts).every((part) => part.scrollWidth <= part.clientWidth + 1);
       };
-      if (fits(1)) return;
+      if (fits(maxScale)) return;
       let low = 0.25;
-      let high = 1;
+      let high = maxScale;
       for (let index = 0; index < 14; index += 1) {
         const middle = (low + high) / 2;
         if (fits(middle)) low = middle;
@@ -131,7 +147,13 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       const count = Number(root.querySelector("#viewerNumber")?.textContent?.trim());
       if (dot) dot.hidden = !(Number.isFinite(count) && count > 0);
     };
+    const onInquiry = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".btn, a[href^='mailto:'], a[href*='wa.me']")) recordTheme("inquiry");
+    };
     toggle?.addEventListener("click", toggleTheme);
+    root.addEventListener("click", onInquiry);
     portfolioFrame?.addEventListener("load", onPortfolioFrameLoad);
     portfolioOpen?.addEventListener("click", onPortfolioOpen);
     portfolioClose?.addEventListener("click", onPortfolioClose);
@@ -207,6 +229,7 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     layout();
     return () => {
       toggle?.removeEventListener("click", toggleTheme);
+      root.removeEventListener("click", onInquiry);
       portfolioFrame?.removeEventListener("load", onPortfolioFrameLoad);
       portfolioOpen?.removeEventListener("click", onPortfolioOpen);
       portfolioClose?.removeEventListener("click", onPortfolioClose);
@@ -216,8 +239,8 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       if (priceTimer) window.clearInterval(priceTimer);
       window.removeEventListener("resize", layout);
     };
-  }, [markup, theme]);
+  }, [domain.hostname, markup, theme]);
 
   const hasBundle = domain.includedMode === "domains" ? domain.includedDomains.length > 0 : domain.includedMode === "text" ? domain.includedText.trim().length > 0 : false;
-  return <div ref={container} className="approved-template" data-theme={theme} data-bundle={hasBundle ? "yes" : "no"} data-price-type={domain.priceType} data-price={domain.price ?? ""} data-rise={domain.price === null ? 0 : domain.priceRisePercent ?? 0} data-rise-start={domain.priceRiseStartedAt || ""} data-rise-legacy={domain.hostname === "imet.si" && domain.price !== null && domain.priceRiseStartedAt === imetRiseStartedAt ? "true" : "false"} data-viewers={domain.viewerCount ?? 0} data-currency={domain.currency} dangerouslySetInnerHTML={{ __html: markup }} />;
+  return <div ref={container} className="approved-template" data-domain-desk="sale" data-theme={theme ?? undefined} data-bundle={hasBundle ? "yes" : "no"} data-price-type={domain.priceType} data-price={domain.price ?? ""} data-rise={domain.price === null ? 0 : domain.priceRisePercent ?? 0} data-rise-start={domain.priceRiseStartedAt || ""} data-rise-legacy={domain.hostname === "imet.si" && domain.price !== null && domain.priceRiseStartedAt === imetRiseStartedAt ? "true" : "false"} data-viewers={domain.viewerCount ?? 0} data-currency={domain.currency} dangerouslySetInnerHTML={{ __html: markup }} />;
 }
