@@ -50,8 +50,13 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
   useEffect(() => {
     const root = container.current;
     if (!root) return;
-    if (theme) root.dataset.theme = theme;
-    else root.removeAttribute("data-theme");
+    if (theme) {
+      root.dataset.theme = theme;
+      document.documentElement.dataset.theme = theme;
+    } else {
+      root.removeAttribute("data-theme");
+      document.documentElement.removeAttribute("data-theme");
+    }
     const systemTheme = () => window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
     const activeTheme = (): "light" | "dark" => root.dataset.theme === "dark" || root.dataset.theme === "light" ? root.dataset.theme : systemTheme();
     const toggle = root.querySelector<HTMLButtonElement>("#themeToggle");
@@ -84,6 +89,7 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     const toggleTheme = () => {
       const next = activeTheme() === "dark" ? "light" : "dark";
       root.dataset.theme = next;
+      document.documentElement.dataset.theme = next;
       setTheme(next);
       syncThemeControl(next);
       try { localStorage.setItem("imet-theme", next); } catch { /* Storage can be disabled by the browser. */ }
