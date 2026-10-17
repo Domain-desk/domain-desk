@@ -16,6 +16,6 @@ export async function POST(request: Request) {
   const domain = await getDomain(parsed.data.hostname);
   if (!domain || domain.status !== "active") return NextResponse.json({ error: "This domain is not available." }, { status: 404 });
   const result = await startEscrowCheckout(domain, parsed.data.email);
-  if ("error" in result) return NextResponse.json({ error: result.error }, { status: result.error.includes("not connected") ? 503 : 422 });
+  if ("error" in result && result.error) return NextResponse.json({ error: result.error }, { status: result.error.includes("not connected") ? 503 : 422 });
   return NextResponse.json({ landingPage: result.landingPage });
 }

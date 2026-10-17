@@ -218,7 +218,7 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     const observer = viewerNumber ? new MutationObserver(onViewerChange) : null;
     if (viewerNumber && observer) observer.observe(viewerNumber, { childList: true, characterData: true, subtree: true });
     onViewerChange();
-    const writeText = (element: HTMLElement | null, value: string) => {
+    const writeText = (element: Element | null, value: string) => {
       if (element && element.textContent !== value) element.textContent = value;
     };
     const tick = () => {
