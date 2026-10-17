@@ -208,6 +208,14 @@ html[data-theme="dark"] .approved-template:not([data-theme="light"]) .domain-suf
 .approved-template .price-stack .live{margin-top:calc(10px*var(--s))!important}
 .approved-template .price-stack .row .tbox{padding:0}
 .approved-template .action-stack{width:100%}
+.approved-template .escrow-buy{display:flex;flex-direction:column;gap:8px;margin-top:calc(26px*var(--s))}
+.approved-template .escrow-buy[hidden]{display:none!important}
+.approved-template .escrow-buy label{display:flex;flex-direction:column;gap:6px;color:var(--mute);font:500 max(11px,calc(13px*var(--s)))/1.3 var(--font-inter),sans-serif}
+.approved-template .escrow-buy input{height:44px;border:1px solid var(--rule);border-radius:4px;padding:0 12px;background:transparent;color:var(--ink);font:500 16px/1 var(--font-inter),sans-serif}
+.approved-template .escrow-buy input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.approved-template .escrow-buy button{height:44px;border:0;border-radius:4px;background:#FF5A1F;color:#180800;font:800 13px/1 var(--font-inter),sans-serif;letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+.approved-template .escrow-buy button:disabled{opacity:.6;cursor:wait}
+.approved-template .escrow-status{min-height:1.2em;margin:0;color:var(--mute);font:400 12px/1.4 var(--font-inter),sans-serif}
 .approved-template .card .contact-slot{position:absolute;left:0;right:0;bottom:calc(-39px*var(--s));margin:0 auto}
 .approved-template .content .details.rows{grid-area:details;align-self:start;min-width:0;width:100%;max-width:480px;margin-top:0!important}
 .approved-template .card h2{font:700 max(16px,calc(26px*var(--s)))/1.15 var(--font-inter),sans-serif;letter-spacing:-.02em}

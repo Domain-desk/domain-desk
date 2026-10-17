@@ -5,6 +5,7 @@ import { readPortfolio } from "@/lib/portfolio-store";
 import { defaultSiteSettings, siteSettingsFromRow, type SiteSettings } from "@/lib/site-settings";
 import { liveHostnames } from "@/lib/site-reachability";
 import { createClient, hasSupabaseConfig } from "@/lib/supabase/server";
+import { escrowCheckoutConfigured } from "@/lib/escrow";
 
 function emptyThemeResults(): ThemeResults {
   return { lightViews: 0, darkViews: 0, lightInquiries: 0, darkInquiries: 0 };
@@ -35,9 +36,9 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   if (!hasSupabaseConfig) {
     const portfolio = await readPortfolio();
     const liveHosts = await liveHostnames(portfolio.domains.map((domain) => domain.hostname));
-    return <AdminConsole initialDomains={portfolio.domains} initialPages={portfolio.pages} initialSettings={portfolio.settings} demoMode={false} backend="server" email="Administrator" liveHosts={liveHosts} themeResults={emptyThemeResults()} initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit}/>;
+    return <AdminConsole initialDomains={portfolio.domains} initialPages={portfolio.pages} initialSettings={portfolio.settings} demoMode={false} backend="server" email="Administrator" liveHosts={liveHosts} themeResults={emptyThemeResults()} initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit} escrowReady={escrowCheckoutConfigured()}/>;
   }
-  if (params.demo === "1") return <AdminConsole initialDomains={starterDomains} initialPages={[]} initialSettings={defaultSiteSettings} demoMode backend="server" initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit}/>;
+  if (params.demo === "1") return <AdminConsole initialDomains={starterDomains} initialPages={[]} initialSettings={defaultSiteSettings} demoMode backend="server" initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit} escrowReady={escrowCheckoutConfigured()}/>;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -68,7 +69,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const pages: DomainPageRecord[] = (pageRows ?? []).map((row) => ({ id: row.id, hostname: row.hostname, slug: row.slug, title: row.title, content: row.content, published: row.published }));
   const settings: SiteSettings = settingsRow ? siteSettingsFromRow(settingsRow) : defaultSiteSettings;
   const liveHosts = await liveHostnames(databaseDomains.map((domain) => domain.hostname));
-  return <AdminConsole initialDomains={databaseDomains} initialPages={pages} initialSettings={settings} demoMode={false} email={user.email} liveHosts={liveHosts} themeResults={themeResultsFromRows(themeRows)} initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit}/>;
+  return <AdminConsole initialDomains={databaseDomains} initialPages={pages} initialSettings={settings} demoMode={false} email={user.email} liveHosts={liveHosts} themeResults={themeResultsFromRows(themeRows)} initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit} escrowReady={escrowCheckoutConfigured()}/>;
 }
 
 function LoginScreen({ configured, error }: { configured: boolean; error?: string }) {

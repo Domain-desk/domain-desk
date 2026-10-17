@@ -47,7 +47,8 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       .replace("<div class='row'><b id='riseNote'>", `<div class='row'${quote.rising ? "" : " hidden"}><b id='riseNote'>`)
       .replace(/https:\/\/wa\.me\/32498659663\?text=[^']+/, `https://wa.me/32498659663?text=${encodedMessage}`)
       .replace(/mailto:[^'"]+\?subject=[^']+/, `mailto:${settings.contactEmail}?subject=${emailSubject}&body=${emailBody}`)
-      .replace("id='viewerNumber'>3<", `id='viewerNumber'>${domain.viewerCount ?? 0}<`);
+      .replace("id='viewerNumber'>3<", `id='viewerNumber'>${domain.viewerCount ?? 0}<`)
+      .replace("</button>\n        </div>\n        <div class='contact-slot'>", "</button><form class='escrow-buy' hidden><label>Email for the Escrow agreement<input name='email' type='email' required autocomplete='email' inputmode='email'></label><button type='submit'>Continue on Escrow</button><p class='escrow-status' role='status'></p></form>\n        </div>\n        <div class='contact-slot'>");
   }, [domain, pricedAt, settings]);
 
   useEffect(() => { setDomain(initialDomain); }, [initialDomain]);
@@ -176,6 +177,43 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     portfolioClose?.addEventListener("click", onPortfolioClose);
     portfolioModal?.addEventListener("click", onModalClick);
     contactToggle?.addEventListener("click", onContactToggle);
+    const buyButton = root.querySelector<HTMLButtonElement>(".action-stack .btn");
+    const buyForm = root.querySelector<HTMLFormElement>(".escrow-buy");
+    const buyStatus = root.querySelector<HTMLElement>(".escrow-status");
+    const canBuy = root.dataset.price !== "" && root.dataset.priceType !== "percentage";
+    const onBuyClick = () => {
+      if (!canBuy || !buyForm || !buyButton) {
+        contactToggle?.click();
+        return;
+      }
+      buyButton.hidden = true;
+      buyForm.hidden = false;
+      buyForm.querySelector<HTMLInputElement>("input")?.focus();
+    };
+    const onBuySubmit = async (event: Event) => {
+      event.preventDefault();
+      if (!buyForm) return;
+      const email = String(new FormData(buyForm).get("email") || "");
+      const submit = buyForm.querySelector("button");
+      submit?.setAttribute("disabled", "true");
+      if (buyStatus) buyStatus.textContent = "Opening Escrow…";
+      recordTheme("inquiry");
+      try {
+        const response = await fetch("/api/escrow", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hostname: domain.hostname, email }) });
+        const payload = await response.json().catch(() => null) as { landingPage?: string; error?: string } | null;
+        if (!response.ok || !payload?.landingPage) {
+          if (buyStatus) buyStatus.textContent = payload?.error || "Escrow could not start this purchase.";
+          submit?.removeAttribute("disabled");
+          return;
+        }
+        window.location.assign(payload.landingPage);
+      } catch {
+        if (buyStatus) buyStatus.textContent = "Escrow could not be reached. Try again.";
+        submit?.removeAttribute("disabled");
+      }
+    };
+    buyButton?.addEventListener("click", onBuyClick);
+    buyForm?.addEventListener("submit", onBuySubmit);
     const viewerNumber = root.querySelector("#viewerNumber");
     const observer = viewerNumber ? new MutationObserver(onViewerChange) : null;
     if (viewerNumber && observer) observer.observe(viewerNumber, { childList: true, characterData: true, subtree: true });
@@ -220,6 +258,8 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       portfolioClose?.removeEventListener("click", onPortfolioClose);
       portfolioModal?.removeEventListener("click", onModalClick);
       contactToggle?.removeEventListener("click", onContactToggle);
+      buyButton?.removeEventListener("click", onBuyClick);
+      buyForm?.removeEventListener("submit", onBuySubmit);
       observer?.disconnect();
       if (priceTimer) window.clearInterval(priceTimer);
       window.removeEventListener("resize", layout);
