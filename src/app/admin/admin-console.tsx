@@ -6,7 +6,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { Activity, ArrowUpRight, BadgePercent, Blocks, CircleHelp, Clock3, ExternalLink, Globe2, LayoutDashboard, LayoutTemplate, LogOut, Plus, Search, Settings2, ShieldCheck, SlidersHorizontal, Trash2, Upload, X } from "lucide-react";
-import { askingPriceLabel, type DomainPageRecord, type DomainRecord } from "@/lib/domains";
+import { currentAskingAmount, normalizeHostname, type DomainPageRecord, type DomainRecord } from "@/lib/domains";
 import { defaultSiteSettings, type SiteSettings } from "@/lib/site-settings";
 import { deleteDomain, deleteSitePage, saveDomain, saveSitePage, saveSiteSettings, signOut, uploadFavicon } from "./actions";
 
@@ -28,21 +28,62 @@ function actionError(result: unknown) {
 }
 
 function money(domain: DomainRecord) {
-  return askingPriceLabel(domain);
+  if (domain.priceType === "percentage" && domain.price !== null) return `${domain.price}%`;
+  const amount = currentAskingAmount(domain);
+  if (amount === null) return "Price on request";
+  const rounded = Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const symbol = domain.currency === "USD" ? "$" : domain.currency === "GBP" ? "£" : domain.currency === "CHF" ? "CHF " : "€";
+  return `${symbol}${rounded}`;
 }
 
-export function AdminConsole({ initialDomains, initialPages, initialSettings = defaultSiteSettings, demoMode, backend = "supabase", email, liveHosts = [], themeResults }: { initialDomains: DomainRecord[]; initialPages: DomainPageRecord[]; initialSettings?: SiteSettings; demoMode: boolean; backend?: "supabase" | "server"; email?: string; liveHosts?: string[]; themeResults?: ThemeResults }) {
+function suggestCategory(hostname: string) {
+  const label = normalizeHostname(hostname).split(".")[0] ?? "";
+  const tld = normalizeHostname(hostname).split(".").pop() ?? "";
+  if (/(fund|bank|pay|finance|capital|money|invest|insure)/.test(label) || tld === "fund") return "Business & Finance";
+  if (/(^ai$|gpt|bot|tech|cloud|data|cyber)/.test(label) || tld === "ai" || tld === "io" || tld === "bot") return "AI & Technology";
+  if (/(faith|islam|quran|akhlaq|akhlak|aqeed|aqidah|deen|halal|salah|sunnah)/.test(label)) return "Faith & Learning";
+  if (/(hotel|travel|trip|stay|tour|flight)/.test(label) || tld === "travel") return "Travel & Hospitality";
+  if (/(car|auto|motor|drive)/.test(label)) return "Automotive";
+  if (/(shop|store|buy|market|style|life|home)/.test(label) || tld === "shop") return "Lifestyle & Commerce";
+  return "Brandable";
+}
+
+function asSection(value?: string): Section {
+  return navItems.some((item) => item.label === value) ? value as Section : "Overview";
+}
+
+function writeAdminLocation(section: Section, edit: string | null) {
+  const params = new URLSearchParams(window.location.search);
+  if (section === "Overview") params.delete("section");
+  else params.set("section", section);
+  if (edit) params.set("edit", edit);
+  else params.delete("edit");
+  const query = params.toString();
+  window.history.replaceState(null, "", query ? `${window.location.pathname}?${query}` : window.location.pathname);
+}
+
+export function AdminConsole({ initialDomains, initialPages, initialSettings = defaultSiteSettings, demoMode, backend = "supabase", email, liveHosts = [], themeResults, initialSection, initialEdit = "" }: { initialDomains: DomainRecord[]; initialPages: DomainPageRecord[]; initialSettings?: SiteSettings; demoMode: boolean; backend?: "supabase" | "server"; email?: string; liveHosts?: string[]; themeResults?: ThemeResults; initialSection?: string; initialEdit?: string }) {
   const router = useRouter();
-  const [section, setSection] = useState<Section>("Overview");
+  const [section, setSection] = useState<Section>(asSection(initialSection));
   const [domains, setDomains] = useState(initialDomains);
   const [pages, setPages] = useState(initialPages);
   const [siteSettings, setSiteSettings] = useState(initialSettings);
   const [filter, setFilter] = useState("");
-  const [editing, setEditing] = useState<DomainRecord | null>(null);
+  const [editing, setEditing] = useState<DomainRecord | null>(() => {
+    if (initialEdit === "new") return emptyDomain();
+    const found = initialDomains.find((domain) => domain.hostname === initialEdit);
+    return found ? { ...found } : null;
+  });
   const [editingPage, setEditingPage] = useState<DomainPageRecord | null>(null);
   const [notice, setNotice] = useState("");
   const [pending, startTransition] = useTransition();
-  useEffect(() => { setDomains(initialDomains); }, [initialDomains]);
+  useEffect(() => {
+    setDomains(initialDomains);
+    const edit = new URLSearchParams(window.location.search).get("edit");
+    if (!edit || edit === "new") return;
+    const found = initialDomains.find((domain) => domain.hostname === edit);
+    if (found) setEditing({ ...found });
+  }, [initialDomains]);
   useEffect(() => { setPages(initialPages); }, [initialPages]);
   useEffect(() => { setSiteSettings(initialSettings); }, [initialSettings]);
   useEffect(() => {
@@ -83,7 +124,19 @@ export function AdminConsole({ initialDomains, initialPages, initialSettings = d
   const activeCount = domains.filter((item) => item.status === "active").length;
   const registrarCount = new Set(domains.map((item) => item.registrar).filter(Boolean)).size;
 
-  function openEditor(record?: DomainRecord) { setEditing(record ? { ...record } : emptyDomain()); setNotice(""); }
+  function chooseSection(next: Section) {
+    setSection(next);
+    writeAdminLocation(next, new URLSearchParams(window.location.search).get("edit"));
+  }
+  function openEditor(record?: DomainRecord) {
+    setEditing(record ? { ...record } : emptyDomain());
+    setNotice("");
+    writeAdminLocation(section, record?.hostname || "new");
+  }
+  function closeEditor() {
+    setEditing(null);
+    writeAdminLocation(section, null);
+  }
   function openPageEditor(record?: DomainPageRecord) { setEditingPage(record ? { ...record } : { id: "", hostname: domains[0]?.hostname ?? "", slug: "about", title: "About", content: "", published: false }); setNotice(""); }
 
   async function submitDomain(form: FormData) {
@@ -104,15 +157,18 @@ export function AdminConsole({ initialDomains, initialPages, initialSettings = d
       const next = domains.some((item) => item.id === record.id) ? domains.map((item) => item.id === record.id ? record : item) : [...domains, record];
       setDomains(next);
       localStorage.setItem("domain-platform-demo", JSON.stringify(next));
-      setEditing(null); setNotice("Saved in this browser’s demo storage."); return;
+      setEditing(record);
+      writeAdminLocation(section, record.hostname);
+      setNotice("Saved. This domain stays open."); return;
     }
+    const hostname = normalizeHostname(val("hostname"));
+    writeAdminLocation(section, hostname);
     startTransition(async () => {
       const result = await saveDomain(form);
       const error = actionError(result);
       if (error) { setNotice(error); return; }
       const detail = result && typeof result === "object" && "detail" in result && typeof result.detail === "string" ? result.detail : "";
-      setEditing(null);
-      if (detail) setNotice(detail);
+      setNotice(detail || "Saved. This domain stays open.");
       router.refresh();
     });
   }
@@ -189,7 +245,7 @@ export function AdminConsole({ initialDomains, initialPages, initialSettings = d
         <Link className="admin-brand" href="/"><span className="brand-mark">D</span><span>Domain Desk<small>PORTFOLIO MANAGER</small></span></Link>
         <div className="workspace-label">WORKSPACE</div>
         <nav className="side-nav" aria-label="Admin sections">
-          {navItems.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => setSection(label)} className={section === label ? "side-link active" : "side-link"}><Icon size={17}/>{label}</button>)}
+          {navItems.map(({ label, icon: Icon }) => <button key={label} type="button" onClick={() => chooseSection(label)} className={section === label ? "side-link active" : "side-link"}><Icon size={17}/>{label}</button>)}
         </nav>
         <div className="sidebar-spacer"/>
         <div className="secure-card"><ShieldCheck size={18}/><div><strong>Private workspace</strong><span>Only approved admins</span></div></div>
@@ -207,17 +263,17 @@ export function AdminConsole({ initialDomains, initialPages, initialSettings = d
             <Metric label="Bundle listings" value={domains.filter((d) => d.includedMode === "domains" && d.includedDomains.length > 0).length} note="Related names grouped" icon={<Blocks size={18}/>} />
             <Metric label="Registrars tracked" value={registrarCount} note={registrarCount ? "Across your domains" : "Add registrar details"} icon={<BadgePercent size={18}/>} />
           </section>
-          <section className="content-card"><div className="card-heading"><div><h2>Domain inventory</h2><p>Active means the name is for sale. Serving this site means that domain is actually loading this website.</p></div><button className="text-button" onClick={() => setSection("Domains")}>View all <ArrowUpRight size={15}/></button></div><DomainTable records={domains.slice(0, 7)} live={live} demoMode={demoMode} onEdit={openEditor} onDelete={removeRecord}/></section>
+          <section className="content-card"><div className="card-heading"><div><h2>Domain inventory</h2><p>Active means the name is for sale. Serving this site means that domain is actually loading this website.</p></div><button className="text-button" onClick={() => chooseSection("Domains")}>View all <ArrowUpRight size={15}/></button></div><DomainTable records={domains.slice(0, 7)} live={live} demoMode={demoMode} onEdit={openEditor} onDelete={removeRecord}/></section>
           {themeResults && <ThemeComparison results={themeResults}/>}
-          <div className="overview-bottom"><section className="content-card"><div className="card-heading"><div><h2>Renewal watch</h2><p>Dates and registrar accounts at a glance.</p></div><Clock3 size={17} className="muted-icon"/></div><div className="renewal-list">{domains.filter((d) => d.renewsOn).slice(0, 4).map((d) => <div key={d.id}><span className="renewal-domain">{d.hostname}<small>{d.registrar || "Registrar not set"}</small></span><time>{d.renewsOn}</time></div>)}{!domains.some((d) => d.renewsOn) && <p className="empty-note">Add renewal dates in a domain’s registrar details and they’ll appear here.</p>}</div></section><section className="content-card quick-card"><div className="card-heading"><div><h2>Quick actions</h2><p>Keep your portfolio up to date.</p></div></div><button onClick={() => openEditor()}><Plus size={16}/> Add a domain</button><button onClick={() => setSection("Operations")}><SlidersHorizontal size={16}/> Review registrar details</button><button onClick={() => setSection("Domains")}><Upload size={16}/> Update a favicon</button></section></div>
+          <div className="overview-bottom"><section className="content-card"><div className="card-heading"><div><h2>Renewal watch</h2><p>Dates and registrar accounts at a glance.</p></div><Clock3 size={17} className="muted-icon"/></div><div className="renewal-list">{domains.filter((d) => d.renewsOn).slice(0, 4).map((d) => <div key={d.id}><span className="renewal-domain">{d.hostname}<small>{d.registrar || "Registrar not set"}</small></span><time>{d.renewsOn}</time></div>)}{!domains.some((d) => d.renewsOn) && <p className="empty-note">Add renewal dates in a domain’s registrar details and they’ll appear here.</p>}</div></section><section className="content-card quick-card"><div className="card-heading"><div><h2>Quick actions</h2><p>Keep your portfolio up to date.</p></div></div><button onClick={() => openEditor()}><Plus size={16}/> Add a domain</button><button onClick={() => chooseSection("Operations")}><SlidersHorizontal size={16}/> Review registrar details</button><button onClick={() => chooseSection("Domains")}><Upload size={16}/> Update a favicon</button></section></div>
         </>}
         {section === "Domains" && <section className="content-card"><div className="card-heading"><div><h2>All domains <span className="count-chip">{domains.length}</span></h2><p>Search and edit your domain names and sale settings. Serving this site is checked live, separate from the for-sale status.</p></div><label className="search-control"><Search size={16}/><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search domains"/></label></div><DomainTable records={visible} live={live} demoMode={demoMode} onEdit={openEditor} onDelete={removeRecord}/></section>}
-        {section === "Operations" && <section className="content-card"><div className="card-heading"><div><h2>Registrar & DNS inventory</h2><p>Private operational details for every domain.</p></div><label className="search-control"><Search size={16}/><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search domains or registrars"/></label></div><div className="table-scroll"><table className="domain-table"><thead><tr><th>Domain</th><th>Registrar</th><th>Account</th><th>DNS provider</th><th>DNS status</th><th>Renewal date</th><th/></tr></thead><tbody>{visible.map((d) => <tr key={d.id}><td className="domain-cell">{d.hostname}</td><td>{d.registrar || <span className="muted-value">Not added</span>}</td><td>{d.registrarAccount || <span className="muted-value">—</span>}</td><td>{d.dnsProvider || <span className="muted-value">—</span>}</td><td><span className={`status-pill ${d.dnsStatus === "active" ? "active" : d.dnsStatus === "attention" ? "sold" : "draft"}`}>{d.dnsStatus}</span></td><td>{d.renewsOn || <span className="muted-value">—</span>}</td><td><button className="icon-button" onClick={() => openEditor(d)} aria-label={`Edit ${d.hostname}`}><SlidersHorizontal size={15}/></button></td></tr>)}</tbody></table></div></section>}
+        {section === "Operations" && <section className="content-card"><ConnectDomainSteps/><div className="card-heading"><div><h2>Registrar & DNS inventory</h2><p>Private operational details for every domain.</p></div><label className="search-control"><Search size={16}/><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search domains or registrars"/></label></div><div className="table-scroll"><table className="domain-table"><thead><tr><th>Domain</th><th>Registrar</th><th>Account</th><th>DNS provider</th><th>DNS status</th><th>Renewal date</th><th/></tr></thead><tbody>{visible.map((d) => <tr key={d.id}><td className="domain-cell">{d.hostname}</td><td>{d.registrar || <span className="muted-value">Not added</span>}</td><td>{d.registrarAccount || <span className="muted-value">—</span>}</td><td>{d.dnsProvider || <span className="muted-value">—</span>}</td><td><span className={`status-pill ${d.dnsStatus === "active" ? "active" : d.dnsStatus === "attention" ? "sold" : "draft"}`}>{d.dnsStatus}</span></td><td>{d.renewsOn || <span className="muted-value">—</span>}</td><td><button className="icon-button" onClick={() => openEditor(d)} aria-label={`Edit ${d.hostname}`}><SlidersHorizontal size={15}/></button></td></tr>)}</tbody></table></div></section>}
         {section === "Site pages" && <section className="content-card"><div className="card-heading"><div><h2>Pages on your domains <span className="count-chip">{pages.length}</span></h2><p>Create extra pages such as About, FAQ or Contact under each domain.</p></div><Button className="quiet-button" variant="outline" onClick={() => openPageEditor()}><Plus size={15}/> Add page</Button></div><div className="table-scroll"><table className="domain-table"><thead><tr><th>Domain</th><th>Page title</th><th>Path</th><th>Status</th><th/></tr></thead><tbody>{pages.map((page) => <tr key={page.id}><td className="domain-cell">{page.hostname}</td><td>{page.title}</td><td>/{page.slug}</td><td><span className={`status-pill ${page.published ? "active" : "draft"}`}>{page.published ? "Published" : "Draft"}</span></td><td className="row-actions"><Link className="icon-button" href={demoMode ? `/${page.slug}?domain=${encodeURIComponent(page.hostname)}` : `https://${page.hostname}/${page.slug}`} title="Preview page" aria-label={`Preview ${page.title}`}><ExternalLink size={15}/></Link><button className="icon-button" onClick={() => openPageEditor(page)} aria-label={`Edit ${page.title}`}><SlidersHorizontal size={15}/></button><button className="icon-button danger-icon" onClick={() => removePage(page)} aria-label={`Delete ${page.title}`}><Trash2 size={15}/></button></td></tr>)}</tbody></table>{pages.length === 0 && <div className="empty-note table-empty">No extra pages yet. Add one to publish more information on a domain.</div>}</div><div className="page-section-note"><Globe2 size={15}/> The same deployment serves each page on its matching domain hostname.</div></section>}
         {section === "Website template" && <TemplateSettingsForm settings={siteSettings} pending={pending} onSubmit={submitTemplateSettings}/>}
         {section === "Settings" && <section className="content-card settings-card"><div className="card-heading"><div><h2>Platform settings</h2><p>Configure shared site and sale defaults.</p></div></div><div className="setting-row"><span><strong>Database connection</strong><small>Supabase project and migrations</small></span><span className={demoMode ? "status-pill setup" : "status-pill live"}>{demoMode ? "Needs setup" : backend === "server" ? "Saved on this server" : "Connected"}</span></div><div className="setting-row"><span><strong>Admin access</strong><small>Invite users by adding them to the admin allowlist.</small></span><span className="status-pill">Allowlist</span></div><div className="setting-row"><span><strong>Hosting</strong><small>One Vercel project can serve multiple custom domains.</small></span><Link className="text-button" href="/setup">Setup guide <ArrowUpRight size={15}/></Link></div><Link className="primary-button inline-button" href="/setup">Open setup checklist <ArrowUpRight size={15}/></Link></section>}
       </main>
-      {editing && <DomainEditor record={editing} pending={pending} demoMode={demoMode} notice={notice} onClose={() => setEditing(null)} onSubmit={submitDomain}/>}
+      {editing && <DomainEditor key={`${editing.id}|${editing.hostname}|${editing.registrar}|${editing.registeredOn}|${editing.renewsOn}|${editing.category}|${editing.includedMode}|${editing.includedText}|${editing.price ?? ""}`} record={editing} pending={pending} demoMode={demoMode} notice={notice} onClose={closeEditor} onSubmit={submitDomain}/>}
       {editingPage && <PageEditor record={editingPage} domains={domains} pending={pending} notice={notice} onClose={() => setEditingPage(null)} onSubmit={submitPage}/>}
     </div>
   );
@@ -250,11 +306,18 @@ function ThemeComparison({ results }: { results: ThemeResults }) {
 }
 
 function DomainTable({ records, live, demoMode, onEdit, onDelete }: { records: DomainRecord[]; live: Set<string>; demoMode: boolean; onEdit: (record: DomainRecord) => void; onDelete: (record: DomainRecord) => void }) {
-  return <div className="table-scroll"><table className="domain-table"><thead><tr><th>Domain name</th><th>Category</th><th>Price</th><th>For sale</th><th>This website</th><th>Registrar</th><th/></tr></thead><tbody>{records.map((d) => <tr key={d.id}><td className="domain-cell"><span className="favicon-preview">{d.faviconUrl ? <Image src={d.faviconUrl} alt="" width={14} height={14} unoptimized/> : <Globe2 size={14}/>}</span>{d.hostname}</td><td>{d.category}</td><td>{money(d)}</td><td><span className={`status-pill ${d.status}`}>{d.status}</span></td><td>{live.has(d.hostname) ? <span className="status-pill active">Serving</span> : <span className="status-pill draft">Not connected</span>}</td><td>{d.registrar || <span className="muted-value">Not added</span>}</td><td className="row-actions"><button className="icon-button" aria-label={`Edit ${d.hostname}`} onClick={() => onEdit(d)}><SlidersHorizontal size={15}/></button><button className="icon-button danger-icon" aria-label={`Delete ${d.hostname}`} title={demoMode ? "Remove from local demo" : "Delete"} onClick={() => onDelete(d)}><Trash2 size={15}/></button></td></tr>)}</tbody></table>{records.length === 0 && <div className="empty-note table-empty">No domains match this search.</div>}</div>;
+  return <div className="table-scroll"><table className="domain-table"><thead><tr><th>Domain name</th><th>Category</th><th>Price</th><th>For sale</th><th>This website</th><th>Registrar</th><th/></tr></thead><tbody>{records.map((d) => <tr key={d.id}><td className="domain-cell"><span className="favicon-preview">{d.faviconUrl ? <Image src={d.faviconUrl} alt="" width={14} height={14} unoptimized/> : <Globe2 size={14}/>}</span>{d.hostname}</td><td>{d.category}</td><td suppressHydrationWarning>{money(d)}</td><td><span className={`status-pill ${d.status}`}>{d.status}</span></td><td>{live.has(d.hostname) ? <span className="status-pill active">Serving</span> : <span className="status-pill draft">Not connected</span>}</td><td>{d.registrar || <span className="muted-value">Not added</span>}</td><td className="row-actions"><button className="icon-button" aria-label={`Edit ${d.hostname}`} onClick={() => onEdit(d)}><SlidersHorizontal size={15}/></button><button className="icon-button danger-icon" aria-label={`Delete ${d.hostname}`} title={demoMode ? "Remove from local demo" : "Delete"} onClick={() => onDelete(d)}><Trash2 size={15}/></button></td></tr>)}</tbody></table>{records.length === 0 && <div className="empty-note table-empty">No domains match this search.</div>}</div>;
+}
+
+function ConnectDomainSteps() {
+  return <div className="dns-steps"><h3>Point this domain at the website</h3><p>The address bar stays on the domain name. Change these records where the domain’s DNS is hosted.</p><ol><li><strong>A record</strong> for the domain, value <strong>76.76.21.21</strong>. If the cloud is orange, click it until it turns grey. Grey means DNS only.</li><li><strong>CNAME</strong> for <strong>www</strong>, value <strong>cname.vercel-dns.com</strong>. Leave that cloud grey.</li><li>Leave the <strong>TXT</strong> records as they are.</li></ol><p>An orange cloud sends visitors through Cloudflare first. The certificate then fails, so the site loops or shows an error. Grey sends the name straight through, and the address bar stays on the domain. www only moves to the same domain without www.</p></div>;
 }
 
 function DomainEditor({ record, pending, demoMode, notice, onClose, onSubmit }: { record: DomainRecord; pending: boolean; demoMode: boolean; notice: string; onClose: () => void; onSubmit: (form: FormData) => void; }) {
   const [mode, setMode] = useState(record.includedMode);
+  const [hostname, setHostname] = useState(record.hostname);
+  const [category, setCategory] = useState(record.category || suggestCategory(record.hostname));
+  const [categoryEdited, setCategoryEdited] = useState(Boolean(record.id));
   const [faviconUrl, setFaviconUrl] = useState(record.faviconUrl);
   const [faviconMessage, setFaviconMessage] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -277,9 +340,9 @@ function DomainEditor({ record, pending, demoMode, notice, onClose, onSubmit }: 
     setUploading(false);
   }
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="editor-panel" role="dialog" aria-modal="true" aria-labelledby="editor-title"><header className="editor-header"><div><span className="eyebrow-label">DOMAIN SETTINGS</span><h2 id="editor-title">{editing ? `Edit ${record.hostname}` : "Add a domain"}</h2></div><button className="icon-button close-button" onClick={onClose} aria-label="Close"><X size={18}/></button></header>
-    <form action={onSubmit} className="domain-form"><input type="hidden" name="id" value={record.id}/><div className="form-scroll"><div className="form-section"><h3>Public page</h3><p>Content shown on the domain’s own website and in your portfolio.</p><div className="form-grid"><Field label="Domain name" name="hostname" placeholder="example.si" defaultValue={record.hostname} required/><Field label="Page title" name="title" placeholder="A short name or headline" defaultValue={record.title}/><Field label="Category" name="category" defaultValue={record.category}/><label className="field"><span>Status</span><select name="status" defaultValue={record.status}><option value="active">Active</option><option value="draft">Draft</option><option value="sold">Sold</option></select></label><label className="field full-field"><span>Page description</span><textarea name="description" rows={3} defaultValue={record.description}/></label></div></div>
-    <div className="form-section"><h3>Pricing & included domains</h3><p>The amount you enter is the price shown. Leave it blank to show price on request. Each saved price has its own rise timer. Leave registrar and dates blank to fill them from the public registry when they are available.</p><div className="form-grid"><label className="field"><span>Price type</span><select name="priceType" defaultValue={record.priceType}><option value="request">Rising price</option><option value="fixed">Fixed price</option><option value="percentage">Percentage</option></select></label><Field label="Starting amount" name="price" type="number" step="0.01" placeholder="Leave blank for price on request" defaultValue={record.price ?? ""}/><Field label="Daily rise %" name="priceRisePercent" type="number" step="0.01" placeholder="7" defaultValue={record.priceRisePercent ?? 7}/><label className="field"><span>Currency</span><select name="currency" defaultValue={record.currency || "EUR"}><option>EUR</option><option>USD</option><option>GBP</option><option>CHF</option></select></label><label className="field"><span>Included domains setting</span><select name="includedMode" value={mode} onChange={(event) => setMode(event.target.value as DomainRecord["includedMode"])}><option value="domains">Other domains included</option><option value="text">Custom included text</option><option value="none">Nothing included</option></select></label>{mode === "domains" && <label className="field full-field"><span>Included domain names</span><textarea name="includedDomains" rows={2} defaultValue={record.includedDomains.join("\n")} placeholder="One domain per line"/></label>}{mode === "text" && <label className="field full-field"><span>Included text</span><textarea name="includedText" rows={2} defaultValue={record.includedText} placeholder="Describe what is included"/></label>}</div></div>
-    <div className="form-section"><h3>Registrar & DNS</h3><p>Private records for your own operational overview.</p><div className="form-grid"><Field label="Registrar" name="registrar" placeholder="e.g. Namecheap" defaultValue={record.registrar}/><Field label="Registrar account" name="registrarAccount" placeholder="Account label or email" defaultValue={record.registrarAccount}/><Field label="Registration date" name="registeredOn" type="date" defaultValue={record.registeredOn}/><Field label="Renewal date" name="renewsOn" type="date" defaultValue={record.renewsOn}/><Field label="DNS provider" name="dnsProvider" placeholder="e.g. Cloudflare" defaultValue={record.dnsProvider}/><label className="field"><span>DNS status</span><select name="dnsStatus" defaultValue={record.dnsStatus}><option value="unknown">Unknown</option><option value="pending">Pending setup</option><option value="active">Active</option><option value="attention">Needs attention</option></select></label><label className="field full-field"><span>Nameservers</span><textarea name="nameservers" rows={2} defaultValue={record.nameservers} placeholder="One nameserver per line"/></label><label className="field full-field"><span>Private notes</span><textarea name="internalNotes" rows={3} defaultValue={record.internalNotes} placeholder="Renewal reminders, account notes or internal details"/></label></div></div>
+    <form action={onSubmit} className="domain-form"><input type="hidden" name="id" value={record.id}/><div className="form-scroll"><div className="form-section"><h3>Public page</h3><p>Content shown on the domain’s own website and in your portfolio.</p><div className="form-grid"><label className="field"><span>Domain name</span><input name="hostname" value={hostname} placeholder="example.si" required onChange={(event) => { const next = event.target.value; setHostname(next); if (!categoryEdited) setCategory(suggestCategory(next)); }}/></label><Field label="Page title" name="title" placeholder="A short name or headline" defaultValue={record.title || record.hostname}/><label className="field"><span>Category</span><input name="category" value={category} onChange={(event) => { setCategoryEdited(true); setCategory(event.target.value); }}/><small className="field-hint">Filled from the domain name. Change it if the suggestion is wrong.</small></label><label className="field"><span>Status</span><select name="status" defaultValue={record.status}><option value="active">Active</option><option value="draft">Draft</option><option value="sold">Sold</option></select></label><label className="field full-field"><span>Page description</span><textarea name="description" rows={3} defaultValue={record.description}/></label></div></div>
+    <div className="form-section"><h3>Pricing & included domains</h3><p>The amount you enter is the price shown. Leave it blank to show price on request. Each saved price has its own rise timer. Leave registrar and dates blank to fill them from the public registry when they are available.</p><div className="form-grid"><label className="field"><span>Price type</span><select name="priceType" defaultValue={record.priceType}><option value="request">Rising price</option><option value="fixed">Fixed price</option><option value="percentage">Percentage</option></select></label><Field label="Starting amount" name="price" type="number" step="0.01" placeholder="Leave blank for price on request" defaultValue={record.price ?? ""}/><Field label="Daily rise %" name="priceRisePercent" type="number" step="0.01" placeholder="7" defaultValue={record.priceRisePercent ?? 7}/><label className="field"><span>Currency</span><select name="currency" defaultValue={record.currency || "EUR"}><option>EUR</option><option>USD</option><option>GBP</option><option>CHF</option></select></label><label className="field"><span>Included domains setting</span><select name="includedMode" value={mode} onChange={(event) => setMode(event.target.value as DomainRecord["includedMode"])}><option value="domains">Other domains included</option><option value="text">Custom included text</option><option value="none">Nothing included</option></select></label>{mode === "domains" && <label className="field full-field"><span>Included domain names</span><textarea name="includedDomains" rows={2} defaultValue={record.includedDomains.join("\n")} placeholder="One domain per line"/></label>}{mode === "text" && <label className="field full-field"><span>Included text</span><textarea name="includedText" rows={2} defaultValue={record.includedText} placeholder="Write the line exactly as it should appear"/><small className="field-hint">Shown on its own, in the same light text. “Domain included” is added only when other domain names are included.</small></label>}</div></div>
+    <div className="form-section"><h3>Registrar & DNS</h3><p>Private records for your own operational overview. Registrar and dates fill in from the public registry when you leave them blank.</p><ConnectDomainSteps/><div className="form-grid"><Field label="Registrar" name="registrar" placeholder="e.g. Namecheap" defaultValue={record.registrar}/><Field label="Registrar account" name="registrarAccount" placeholder="Account label or email" defaultValue={record.registrarAccount}/><Field label="Registration date" name="registeredOn" type="date" defaultValue={record.registeredOn}/><Field label="Renewal date" name="renewsOn" type="date" defaultValue={record.renewsOn}/><Field label="DNS provider" name="dnsProvider" placeholder="e.g. Cloudflare" defaultValue={record.dnsProvider}/><label className="field"><span>DNS status</span><select name="dnsStatus" defaultValue={record.dnsStatus}><option value="unknown">Unknown</option><option value="pending">Pending setup</option><option value="active">Active</option><option value="attention">Needs attention</option></select></label><label className="field full-field"><span>Nameservers</span><textarea name="nameservers" rows={2} defaultValue={record.nameservers} placeholder="One nameserver per line"/></label><label className="field full-field"><span>Private notes</span><textarea name="internalNotes" rows={3} defaultValue={record.internalNotes} placeholder="Renewal reminders, account notes or internal details"/></label></div></div>
     <div className="form-section"><h3>Favicon</h3><p>Upload an ICO, PNG, SVG, JPEG or WebP icon, or paste a URL.</p><label className="upload-control"><Upload size={16}/><span>{uploading ? "Uploading…" : "Choose favicon file"}</span><input type="file" accept=".ico,.png,.svg,.jpg,.jpeg,.webp,image/x-icon,image/png,image/svg+xml,image/webp" onChange={(event) => void handleFavicon(event.target.files?.[0], event.currentTarget.form)} disabled={uploading}/></label>{faviconMessage && <span className="upload-message" role="status">{faviconMessage}</span>}<label className="field"><span>Favicon URL</span><input name="faviconUrl" value={faviconUrl} onChange={(event) => setFaviconUrl(event.target.value)} placeholder="https://... or /icons/domain.svg"/></label></div>
     {notice && <div className="notice form-notice" role="status">{notice}</div>}</div><footer className="editor-footer"><button type="button" className="quiet-button" onClick={onClose}>Cancel</button><Button type="submit" className="primary-button" disabled={pending}>{pending ? "Saving…" : "Save domain"}</Button></footer></form>
   </section></div>;

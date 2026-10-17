@@ -50,7 +50,8 @@ export function DomainSalePage({ initialDomain, initialSettings, localPreview }:
         <span className="sale-eyebrow"><Globe2 size={13}/>{settings.availabilityLabel}</span>
         <h1>{domain.hostname}</h1>
         {domain.description && <p className="sale-description">{domain.description}</p>}
-        {included && <p className="sale-included">{settings.includedLabel} <strong>{included}</strong></p>}
+        {domain.includedMode === "domains" && included && <p className="sale-included">{settings.includedLabel} <strong>{included}</strong></p>}
+        {domain.includedMode === "text" && domain.includedText.trim() && <p className="sale-included sale-included-text">{domain.includedText}</p>}
         <div className="sale-facts">
           <div><strong>{settings.transferLabel}</strong><span>{settings.transferValue}</span></div>
           <div><strong>{settings.paymentLabel}</strong><span>{settings.paymentValue}</span></div>

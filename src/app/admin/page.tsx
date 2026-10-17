@@ -26,16 +26,18 @@ import { Button } from "@/components/ui/button";
 
 export const dynamic = "force-dynamic";
 
-type AdminPageProps = { searchParams: Promise<{ demo?: string; error?: string }> };
+const adminSections = ["Overview", "Domains", "Operations", "Site pages", "Website template", "Settings"];
+
+type AdminPageProps = { searchParams: Promise<{ demo?: string; error?: string; section?: string; edit?: string }> };
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   const params = await searchParams;
   if (!hasSupabaseConfig) {
     const portfolio = await readPortfolio();
     const liveHosts = await liveHostnames(portfolio.domains.map((domain) => domain.hostname));
-    return <AdminConsole initialDomains={portfolio.domains} initialPages={portfolio.pages} initialSettings={portfolio.settings} demoMode={false} backend="server" email="Administrator" liveHosts={liveHosts} themeResults={emptyThemeResults()}/>;
+    return <AdminConsole initialDomains={portfolio.domains} initialPages={portfolio.pages} initialSettings={portfolio.settings} demoMode={false} backend="server" email="Administrator" liveHosts={liveHosts} themeResults={emptyThemeResults()} initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit}/>;
   }
-  if (params.demo === "1") return <AdminConsole initialDomains={starterDomains} initialPages={[]} initialSettings={defaultSiteSettings} demoMode backend="server"/>;
+  if (params.demo === "1") return <AdminConsole initialDomains={starterDomains} initialPages={[]} initialSettings={defaultSiteSettings} demoMode backend="server" initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit}/>;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -66,7 +68,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const pages: DomainPageRecord[] = (pageRows ?? []).map((row) => ({ id: row.id, hostname: row.hostname, slug: row.slug, title: row.title, content: row.content, published: row.published }));
   const settings: SiteSettings = settingsRow ? siteSettingsFromRow(settingsRow) : defaultSiteSettings;
   const liveHosts = await liveHostnames(databaseDomains.map((domain) => domain.hostname));
-  return <AdminConsole initialDomains={databaseDomains} initialPages={pages} initialSettings={settings} demoMode={false} email={user.email} liveHosts={liveHosts} themeResults={themeResultsFromRows(themeRows)}/>;
+  return <AdminConsole initialDomains={databaseDomains} initialPages={pages} initialSettings={settings} demoMode={false} email={user.email} liveHosts={liveHosts} themeResults={themeResultsFromRows(themeRows)} initialSection={adminSections.includes(params.section ?? "") ? params.section : undefined} initialEdit={params.edit}/>;
 }
 
 function LoginScreen({ configured, error }: { configured: boolean; error?: string }) {

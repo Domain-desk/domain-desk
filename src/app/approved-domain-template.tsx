@@ -18,21 +18,24 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     const [name, ...suffixParts] = domain.hostname.split(".");
     const suffix = suffixParts.length ? `.${suffixParts.join(".")}` : "";
     const hostMarkup = `${escapeHtml(name)}<span class="domain-suffix">${escapeHtml(suffix)}</span>`;
-    const included = domain.includedMode === "domains"
+    const includedNames = domain.includedMode === "domains"
       ? domain.includedDomains.map((item) => {
         const [bundleName, ...bundleSuffix] = item.split(".");
         return `${escapeHtml(bundleName)}<span class="domain-suffix">${escapeHtml(bundleSuffix.length ? `.${bundleSuffix.join(".")}` : "")}</span>`;
       }).join(", ")
-      : domain.includedMode === "text" ? escapeHtml(domain.includedText) : "";
-    const bundle = domain.includedMode === "none" ? "" : `${escapeHtml(settings.includedLabel)} <b>${included}</b>`;
+      : "";
+    const customText = domain.includedMode === "text" ? escapeHtml(domain.includedText.trim()) : "";
+    const bundle = includedNames
+      ? `${escapeHtml(settings.includedLabel)} <b>${includedNames}</b>`
+      : customText;
     const encodedMessage = encodeURIComponent(`Hello, I'm interested in ${domain.hostname}. Could you share more details?`);
     const emailSubject = encodeURIComponent(`Inquiry about ${domain.hostname}`);
     const emailBody = encodeURIComponent(`Hello, I'm interested in ${domain.hostname}. Could you share more details?`);
     return templateMarkup
       .replace("{{HOST_MARKUP}}", hostMarkup)
-      .replace("{{BUNDLE_MARKUP}}", included)
+      .replace("{{BUNDLE_MARKUP}}", includedNames || customText)
       .replace("{{HOST_TEXT}}", escapeHtml(domain.hostname))
-      .replace(/<p class='bundle'>[\s\S]*?<\/p>/, bundle ? `<p class='bundle'>${bundle}</p>` : "<p class='bundle empty' aria-hidden='true'></p>")
+      .replace(/<p class='bundle'>[\s\S]*?<\/p>/, bundle ? `<p class='bundle${customText ? " text-only" : ""}'>${bundle}</p>` : "<p class='bundle empty' aria-hidden='true'></p>")
       .replace(/https:\/\/wa\.me\/32498659663\?text=[^']+/, `https://wa.me/32498659663?text=${encodedMessage}`)
       .replace(/mailto:[^'"]+\?subject=[^']+/, `mailto:${settings.contactEmail}?subject=${emailSubject}&body=${emailBody}`)
       .replace("id='viewerNumber'>3<", `id='viewerNumber'>${domain.viewerCount ?? 0}<`);

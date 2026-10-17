@@ -172,6 +172,7 @@ html[data-theme="dark"] .approved-template:not([data-theme="light"]) .domain-suf
 .approved-template .bundle.empty{min-height:1.2em}
 .approved-template .bundle i{width:var(--lw);height:1.3em;background:var(--ink)}
 .approved-template .bundle b{font-family:inherit;font-size:inherit;font-weight:700;color:var(--ink)}
+.approved-template .bundle.text-only,.approved-template .bundle.text-only b{font-weight:400;color:var(--mute)}
 .approved-template .deal{margin-left:0!important;margin-top:calc(36px*var(--s))!important;display:flex;flex-wrap:wrap;align-items:flex-start;column-gap:calc(56px*var(--s));row-gap:calc(12px*var(--s))}
 .approved-template .price{font:700 max(26px,calc(54px*var(--s)))/1 var(--font-roboto-mono),monospace;letter-spacing:-.04em}
 .approved-template .price.is-request{font-family:var(--font-inter),system-ui,sans-serif;font-size:max(18px,calc(28px*var(--s)));font-weight:650;letter-spacing:-.03em}
