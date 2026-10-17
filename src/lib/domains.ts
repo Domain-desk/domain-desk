@@ -138,6 +138,16 @@ export function currentAskingAmount(domain: Pick<DomainRecord, "hostname" | "pri
   return domain.price * Math.pow(1 + rate, riseSteps(domain, now));
 }
 
+export function compareByAskingPrice(left: DomainRecord, right: DomainRecord, order: "high" | "low" = "high") {
+  const leftAmount = currentAskingAmount(left);
+  const rightAmount = currentAskingAmount(right);
+  if (leftAmount === null && rightAmount === null) return left.hostname.localeCompare(right.hostname);
+  if (leftAmount === null) return 1;
+  if (rightAmount === null) return -1;
+  const difference = order === "high" ? rightAmount - leftAmount : leftAmount - rightAmount;
+  return difference || left.hostname.localeCompare(right.hostname);
+}
+
 export function askingPriceLabel(domain: DomainRecord, now = Date.now()) {
   if (domain.priceType === "percentage" && domain.price !== null) return `${domain.price}%`;
   const amount = currentAskingAmount(domain, now);
