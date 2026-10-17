@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "./approved-template.css";
 import templateMarkup from "./approved-template-markup.json";
-import { imetRiseStartedAt, type DomainRecord } from "@/lib/domains";
+import { imetRiseStartedAt, saleQuote, type DomainRecord } from "@/lib/domains";
 import { defaultSiteSettings, type SiteSettings } from "@/lib/site-settings";
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 }
 
-export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSettings }: { initialDomain: DomainRecord; settings?: SiteSettings }) {
+export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSettings, pricedAt }: { initialDomain: DomainRecord; settings?: SiteSettings; pricedAt: number }) {
   const [domain, setDomain] = useState(initialDomain);
   const [theme, setTheme] = useState<"light" | "dark" | null>(null);
   const container = useRef<HTMLDivElement>(null);
@@ -28,6 +28,7 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     const bundle = includedNames
       ? `${escapeHtml(settings.includedLabel)} <b>${includedNames}</b>`
       : customText;
+    const quote = saleQuote(domain, pricedAt);
     const encodedMessage = encodeURIComponent(`Hello, I'm interested in ${domain.hostname}. Could you share more details?`);
     const emailSubject = encodeURIComponent(`Inquiry about ${domain.hostname}`);
     const emailBody = encodeURIComponent(`Hello, I'm interested in ${domain.hostname}. Could you share more details?`);
@@ -35,33 +36,40 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       .replace("{{HOST_MARKUP}}", hostMarkup)
       .replace("{{BUNDLE_MARKUP}}", includedNames || customText)
       .replace("{{HOST_TEXT}}", escapeHtml(domain.hostname))
-      .replace(/<p class='bundle'>[\s\S]*?<\/p>/, bundle ? `<p class='bundle${customText ? " text-only" : ""}'>${bundle}</p>` : "<p class='bundle empty' aria-hidden='true'></p>")
+      .replace(/<p class='bundle'>[\s\S]*?<\/p>\s*<p class='desc'[\s\S]*?<\/p>/, bundle ? `<p class='bundle${customText ? " text-only" : ""}'>${bundle}</p>` : "<p class='bundle empty' aria-hidden='true'></p>")
+      .replace("id='prevP'>$1,070,000<", `id='prevP'>${escapeHtml(quote.nextLabel)}<`)
+      .replace("id='livePrice'>$1,000,000<", `id='livePrice'>${escapeHtml(quote.currentLabel)}<`)
+      .replace("id='riseNote'>Price rises 7% in<", `id='riseNote'>${escapeHtml(quote.riseLabel)}<`)
+      .replace("id='timer3' class='tbox'>00h 00m 00s<", `id='timer3' class='tbox'>${escapeHtml(quote.timer)}<`)
+      .replace("<p class='was-p' id='nextPrice'>", `<p class='was-p' id='nextPrice'${quote.rising ? "" : " hidden"}>`)
+      .replace("<span class='lbl nowlbl'>Now</span>", `<span class='lbl nowlbl'${quote.rising ? "" : " hidden"}>Now</span>`)
+      .replace("<p class='price'>", `<p class='price${quote.request ? " is-request" : ""}'>`)
+      .replace("<div class='row'><b id='riseNote'>", `<div class='row'${quote.rising ? "" : " hidden"}><b id='riseNote'>`)
       .replace(/https:\/\/wa\.me\/32498659663\?text=[^']+/, `https://wa.me/32498659663?text=${encodedMessage}`)
       .replace(/mailto:[^'"]+\?subject=[^']+/, `mailto:${settings.contactEmail}?subject=${emailSubject}&body=${emailBody}`)
       .replace("id='viewerNumber'>3<", `id='viewerNumber'>${domain.viewerCount ?? 0}<`);
-  }, [domain, settings]);
+  }, [domain, pricedAt, settings]);
 
   useEffect(() => { setDomain(initialDomain); }, [initialDomain]);
 
   useEffect(() => {
     let saved: string | null = null;
     try { saved = localStorage.getItem("imet-theme"); } catch { /* Storage can be disabled by the browser. */ }
-    const frame = window.requestAnimationFrame(() => setTheme(saved === "dark" || saved === "light" ? saved : null));
-    return () => window.cancelAnimationFrame(frame);
+    if (saved === "dark" || saved === "light") setTheme(saved);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = container.current;
     if (!root) return;
     if (theme) {
       root.dataset.theme = theme;
       document.documentElement.dataset.theme = theme;
-    } else {
-      root.removeAttribute("data-theme");
-      document.documentElement.removeAttribute("data-theme");
     }
     const systemTheme = () => window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    const activeTheme = (): "light" | "dark" => root.dataset.theme === "dark" || root.dataset.theme === "light" ? root.dataset.theme : systemTheme();
+    const activeTheme = (): "light" | "dark" => {
+      const explicit = root.dataset.theme || document.documentElement.dataset.theme;
+      return explicit === "dark" || explicit === "light" ? explicit : systemTheme();
+    };
     const toggle = root.querySelector<HTMLButtonElement>("#themeToggle");
     const content = root.querySelector<HTMLElement>(".content");
     const domainHeading = content?.querySelector<HTMLElement>(".dom");
@@ -172,28 +180,14 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
     const observer = viewerNumber ? new MutationObserver(onViewerChange) : null;
     if (viewerNumber && observer) observer.observe(viewerNumber, { childList: true, characterData: true, subtree: true });
     onViewerChange();
-    const day = 86400000;
-    const twoDigits = (value: number) => `${value < 10 ? "0" : ""}${value}`;
+    const writeText = (element: HTMLElement | null, value: string) => {
+      if (element && element.textContent !== value) element.textContent = value;
+    };
     const tick = () => {
-      const now = Date.now();
-      const start = Date.parse(root.dataset.riseStart || "");
-      const firstRise = Number.isFinite(start) ? start : now;
-      const legacy = root.dataset.riseLegacy === "true";
-      const periods = now < firstRise ? 0 : Math.floor((now - firstRise) / day);
-      const rises = legacy ? (now < firstRise ? 0 : periods + 1) : periods;
-      const remaining = Math.max(0, Math.floor((firstRise + (periods + 1) * day - now) / 1000));
-      const viewerNumber = root.querySelector("#viewerNumber");
+      const quote = saleQuote(domain, Date.now());
+      const viewer = root.querySelector("#viewerNumber");
       const viewers = Number(root.dataset.viewers);
-      if (viewerNumber && Number.isFinite(viewers)) viewerNumber.textContent = String(Math.max(0, Math.round(viewers)));
-      const configuredPrice = Number(root.dataset.price);
-      const hasAmount = root.dataset.price !== "" && Number.isFinite(configuredPrice) && configuredPrice >= 0;
-      const risePercent = Number(root.dataset.rise);
-      const riseRate = Number.isFinite(risePercent) ? risePercent / 100 : 0;
-      const percentage = hasAmount && root.dataset.priceType === "percentage";
-      const price = hasAmount ? configuredPrice * Math.pow(1 + riseRate, rises) : null;
-      const formatDomainPrice = (amount: number) => percentage
-        ? `${Number(amount.toFixed(2))}%`
-        : new Intl.NumberFormat("en", { style: "currency", currency: root.dataset.currency || "EUR", maximumFractionDigits: 0 }).format(amount);
+      if (viewer && Number.isFinite(viewers)) writeText(viewer, String(Math.max(0, Math.round(viewers))));
       const timer = root.querySelector<HTMLElement>("#timer3");
       const current = root.querySelector<HTMLElement>("#livePrice");
       const previous = root.querySelector<HTMLElement>("#prevP");
@@ -201,36 +195,18 @@ export function ApprovedDomainTemplate({ initialDomain, settings = defaultSiteSe
       const riseNote = root.querySelector<HTMLElement>("#riseNote");
       const priceLine = root.querySelector<HTMLElement>(".price");
       const nowLabel = root.querySelector<HTMLElement>(".nowlbl");
-      const rising = hasAmount && riseRate > 0;
-      if (nextPrice) nextPrice.style.visibility = rising ? "visible" : "hidden";
-      if (nowLabel) nowLabel.hidden = !rising;
-      if (priceLine) priceLine.classList.toggle("is-request", !hasAmount);
+      if (nextPrice) nextPrice.hidden = !quote.rising;
+      if (nowLabel) nowLabel.hidden = !quote.rising;
+      if (priceLine) priceLine.classList.toggle("is-request", quote.request);
       if (riseNote) {
-        riseNote.textContent = rising ? `Price rises ${Number((riseRate * 100).toFixed(2))}% in` : "Price held";
-        if (riseNote.parentElement) riseNote.parentElement.hidden = !rising;
+        writeText(riseNote, quote.riseLabel);
+        if (riseNote.parentElement) riseNote.parentElement.hidden = !quote.rising;
       }
-      if (timer && rising) timer.textContent = `${twoDigits(Math.floor(remaining / 3600))}h ${twoDigits(Math.floor(remaining % 3600 / 60))}m ${twoDigits(remaining % 60)}s`;
-      if (current) current.textContent = price === null ? "Price on request" : formatDomainPrice(price);
-      if (previous && price !== null) previous.textContent = formatDomainPrice(price * (1 + riseRate));
+      if (timer && quote.rising) writeText(timer, quote.timer);
+      writeText(current, quote.currentLabel);
+      if (quote.nextLabel) writeText(previous, quote.nextLabel);
     };
-    const alignToPrice = () => {
-      const priceLabel = root.querySelector("#livePrice");
-      const bundle = root.querySelector<HTMLElement>(".bundle:not(.empty)");
-      const anchor = bundle && bundle.textContent?.trim() ? bundle : domainHeading;
-      const column = root.querySelector<HTMLElement>(".col");
-      if (!priceLabel || !anchor || !column) return;
-      if (window.innerWidth < 721) {
-        column.style.transform = "";
-        return;
-      }
-      column.style.transform = "";
-      const delta = priceLabel.getBoundingClientRect().bottom - anchor.getBoundingClientRect().bottom;
-      if (Math.abs(delta) < 0.5) return;
-      const transform = getComputedStyle(column).transform;
-      const baseY = transform && transform !== "none" ? new DOMMatrix(transform).m42 : 0;
-      column.style.transform = `translateY(${baseY + delta}px)`;
-    };
-    const layout = () => { fit(); alignToPrice(); };
+    const layout = () => { fit(); };
     const priceTimer = root.querySelector("#timer3") ? window.setInterval(tick, 1000) : undefined;
     if (root.querySelector("#timer3")) tick();
     window.addEventListener("resize", layout);

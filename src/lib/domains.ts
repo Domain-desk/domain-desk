@@ -150,9 +150,36 @@ export function compareByAskingPrice(left: DomainRecord, right: DomainRecord, or
 
 export function askingPriceLabel(domain: DomainRecord, now = Date.now()) {
   if (domain.priceType === "percentage" && domain.price !== null) return `${domain.price}%`;
+  return saleQuote(domain, now).currentLabel;
+}
+
+export function saleQuote(domain: Pick<DomainRecord, "hostname" | "price" | "priceType" | "priceRisePercent" | "priceRiseStartedAt" | "currency">, now = Date.now()) {
   const amount = currentAskingAmount(domain, now);
-  if (amount === null) return "Price on request";
-  return new Intl.NumberFormat("en", { style: "currency", currency: domain.currency || "EUR", maximumFractionDigits: 0 }).format(amount);
+  const percentage = domain.priceType === "percentage" && domain.price !== null;
+  const rate = percentage ? 0 : normalizePriceRisePercent(domain.priceRisePercent) / 100;
+  const rising = amount !== null && rate > 0;
+  const symbol = domain.currency === "USD" ? "$" : domain.currency === "GBP" ? "£" : domain.currency === "CHF" ? "CHF " : "€";
+  const format = (value: number) => {
+    if (percentage) return `${Number(value.toFixed(2))}%`;
+    const rounded = Math.round(value).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return `${symbol}${rounded}`;
+  };
+  const startedAt = hasRiseStart(domain.priceRiseStartedAt)
+    ? domain.priceRiseStartedAt
+    : domain.hostname === "imet.si" ? imetRiseStartedAt : new Date(now).toISOString();
+  const start = Date.parse(startedAt);
+  const firstRise = Number.isFinite(start) ? start : now;
+  const periods = now < firstRise ? 0 : Math.floor((now - start) / dayMs);
+  const remaining = Math.max(0, Math.floor((firstRise + (periods + 1) * dayMs - now) / 1000));
+  const twoDigits = (value: number) => `${value < 10 ? "0" : ""}${value}`;
+  return {
+    currentLabel: amount === null ? "Price on request" : format(amount),
+    nextLabel: amount === null ? "" : format(amount * (1 + (percentage ? 0 : rate))),
+    rising,
+    request: amount === null,
+    riseLabel: rising ? `Price rises ${Number((rate * 100).toFixed(2))}% in` : "Price held",
+    timer: `${twoDigits(Math.floor(remaining / 3600))}h ${twoDigits(Math.floor((remaining % 3600) / 60))}m ${twoDigits(remaining % 60)}s`,
+  };
 }
 
 export function normalizePriceRisePercent(value: unknown) {

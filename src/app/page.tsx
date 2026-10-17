@@ -39,5 +39,5 @@ export default async function Home({ searchParams }: Props) {
     : undefined;
   const resolvedDomain = domain ?? previewDomain;
   if (!resolvedDomain) notFound();
-  return <ApprovedDomainTemplate initialDomain={resolvedDomain} settings={settings} />;
+  return <ApprovedDomainTemplate initialDomain={resolvedDomain} settings={settings} pricedAt={Date.now()} />;
 }

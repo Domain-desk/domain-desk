@@ -157,7 +157,6 @@ html[data-theme="dark"] .approved-template:not([data-theme="light"]) .content,
 }
 .approved-template .content *{margin:0}
 .approved-template .col{grid-area:brand;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:calc(14px*var(--s))}
-@media (min-width:721px){.approved-template .col{transform:translateY(calc(30px*var(--s)))}}
 .approved-template .badge{font:700 max(9px,calc(11px*var(--s)))/1 var(--font-inter),sans-serif;letter-spacing:.18em;text-transform:uppercase;padding:.85em 1.2em;border:1px solid var(--light-bd);background:var(--light-bg);border-radius:8px}
 .approved-template .dom{display:block;font:700 var(--dom)/1 var(--font-inter),sans-serif;letter-spacing:-.04em;white-space:nowrap}
 @media (min-width:721px){.approved-template .dom{display:flex;align-items:flex-end;flex-wrap:nowrap;min-height:var(--dom)}}
