@@ -74,7 +74,7 @@ h1{margin:0;font-size:clamp(38px,7vw,72px);line-height:1.02;letter-spacing:-.065
 .extension-group{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--surface);box-shadow:0 1px 2px rgba(20,35,50,.025)}
 .extension-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--row-tint);font-size:12px;font-weight:650;letter-spacing:.07em;text-transform:uppercase}
 .extension-count{margin-left:auto;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:0}
-.price-heading{color:var(--muted);font-size:11px;font-weight:500;letter-spacing:0;text-transform:none}
+.price-sort{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:500;letter-spacing:0;text-transform:none;cursor:pointer}.sort-arrow{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent}.sort-arrow.down{border-top:6px solid currentColor}.sort-arrow.up{border-bottom:6px solid currentColor}
 .domain-row{min-height:36px;font-size:12px;transition:background .16s}
 .domain-row:nth-child(odd){background:var(--row-tint)}
 .domain-row:hover,.domain-row:focus-within{background:var(--row-hover)}
@@ -181,7 +181,7 @@ let DOMAINS = [
 const grid=document.getElementById('domainGrid'),search=document.getElementById('search');
 const categoryFilters=document.getElementById('categoryFilters'),extensionFilters=document.getElementById('extensionFilters'),empty=document.getElementById('emptyState');
 const categoryDropdown=document.getElementById('categoryDropdown'),extensionDropdown=document.getElementById('extensionDropdown');
-let activeCategory='All',activeExtension='All';
+let activeCategory='All',activeExtension='All',priceOrder='high';
 let categories=['All',...new Set(DOMAINS.map(domain=>domain.category))];
 let extensions=['All',...new Set(DOMAINS.map(domain=>'.'+domain.name.split('.').pop()))].sort((a,b)=>a==='All'?-1:b==='All'?1:a.localeCompare(b));
 const featuredDomains=new Set(['islam.xyz','imet.si','ad.fund','widen.ai']);
@@ -212,6 +212,8 @@ function domainRow(domain){
   const bundleBadge=bundle?'<span class="domain-bundle">bundle</span>':'';
   return `<div class="domain-row"><a href="${domain.href}"${hrefAttrs}${labels?` aria-label="${domain.name}, ${labels}"`:''}><span class="domain-main"><span class="domain-name">${domain.name}</span>${diamond}${bundleBadge}</span><span class="domain-price">${domain.priceLabel||'Price on request'}</span></a></div>`;
 }
+function askingAmount(domain){if(typeof domain.askingAmount==='number')return domain.askingAmount;if(domain.price===null||domain.price===undefined||domain.price==='')return null;const amount=Number(domain.price);return Number.isFinite(amount)?amount:null}
+function comparePrice(left,right){const leftAmount=askingAmount(left),rightAmount=askingAmount(right);if(leftAmount===null&&rightAmount===null)return left.name.localeCompare(right.name);if(leftAmount===null)return 1;if(rightAmount===null)return -1;const difference=priceOrder==='high'?rightAmount-leftAmount:leftAmount-rightAmount;return difference||left.name.localeCompare(right.name)}
 function render(){
   const query=search.value.trim().toLowerCase();
   const visible=DOMAINS.filter(domain=>(activeCategory==='All'||domain.category===activeCategory)&&(activeExtension==='All'||domain.name.endsWith(activeExtension))&&domain.name.toLowerCase().includes(query));
@@ -223,7 +225,9 @@ function render(){
   const columns=Array.from({length:columnCount},()=>({height:0,groups:[]}));
   [...groups.entries()].sort(([a],[b])=>a.localeCompare(b)).forEach(([extension,domains])=>{
     const column=columns.reduce((best,current,index)=>current.height<columns[best].height?index:best,0);
-    columns[column].groups.push(`<section class="extension-group" aria-label="${extension} domains"><div class="extension-head"><span>${extension}</span><span class="extension-count">${domains.length}</span><span class="price-heading">Price</span></div>${domains.sort((a,b)=>a.name.localeCompare(b.name)).map(domainRow).join('')}</section>`);
+    const arrow=priceOrder==='high'?'down':'up';
+    const priceLabel=priceOrder==='high'?'Highest price first. Show lowest first.':'Lowest price first. Show highest first.';
+    columns[column].groups.push(`<section class="extension-group" aria-label="${extension} domains"><div class="extension-head"><span>${extension}</span><span class="extension-count">${domains.length}</span><button type="button" class="price-sort" aria-label="${priceLabel}">Price <span class="sort-arrow ${arrow}" aria-hidden="true"></span></button></div>${domains.sort(comparePrice).map(domainRow).join('')}</section>`);
     columns[column].height+=46+domains.length*44+16;
   });
   grid.innerHTML=columns.map(column=>`<div class="domain-column">${column.groups.join('')}</div>`).join('');
@@ -236,6 +240,7 @@ search.addEventListener('input',()=>{
   syncFilterButtons();
   render();
 });
+grid.addEventListener('click',event=>{if(!event.target.closest('.price-sort'))return;priceOrder=priceOrder==='high'?'low':'high';render()});
 window.addEventListener('resize',render);
 const root=document.documentElement,toggle=document.getElementById('themeToggle');
 if(new URLSearchParams(location.search).get('modal')==='1')document.body.classList.add('embedded');
